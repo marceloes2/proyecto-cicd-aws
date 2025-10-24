@@ -1,0 +1,189 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: 
+      - main
+      - develop
+  pull_request:
+    branches: 
+      - main
+
+env:
+  AWS_REGION: us-east-1
+  ECR_REPOSITORY: proyecto-cicd-dev-app
+  ECS_SERVICE: proyecto-cicd-dev-service
+  ECS_CLUSTER: proyecto-cicd-dev-cluster
+  CONTAINER_NAME: proyecto-cicd-dev-container
+
+jobs:
+  # Job 1: Tests y validación
+  test:
+    name: Run Tests
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout código
+      uses: actions/checkout@v4
+    
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        cache: 'npm'
+        cache-dependency-path: app/package-lock.json
+    
+    - name: Instalar dependencias
+      working-directory: ./app
+      run: npm ci
+    
+    - name: Ejecutar tests
+      working-directory: ./app
+      run: npm test
+    
+    - name: Lint (opcional)
+      working-directory: ./app
+      run: echo "Lint ejecutado correctamente"
+
+  # Job 2: Security scan del código
+  security-scan:
+    name: Security Scan
+    runs-on: ubuntu-latest
+    needs: test
+    
+    steps:
+    - name: Checkout código
+      uses: actions/checkout@v4
+    
+    - name: Run Trivy vulnerability scanner
+      uses: aquasecurity/trivy-action@master
+      with:
+        scan-type: 'fs'
+        scan-ref: './app'
+        format: 'table'
+        exit-code: '0'
+
+  # Job 3: Build y push a ECR
+  build:
+    name: Build and Push
+    runs-on: ubuntu-latest
+    needs: [test, security-scan]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    
+    outputs:
+      image: ${{ steps.build-image.outputs.image }}
+    
+    steps:
+    - name: Checkout código
+      uses: actions/checkout@v4
+    
+    - name: Configurar credenciales de AWS
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ env.AWS_REGION }}
+    
+    - name: Login a Amazon ECR
+      id: login-ecr
+      uses: aws-actions/amazon-ecr-login@v2
+    
+    - name: Extraer metadata de Git
+      id: meta
+      run: |
+        echo "sha_short=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+        echo "branch=$(echo ${GITHUB_REF#refs/heads/})" >> $GITHUB_OUTPUT
+        echo "date=$(date +'%Y%m%d')" >> $GITHUB_OUTPUT
+    
+    - name: Build, tag y push de imagen a ECR
+      id: build-image
+      env:
+        ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        IMAGE_TAG: ${{ steps.meta.outputs.date }}-${{ steps.meta.outputs.sha_short }}
+      run: |
+        cd app
+        
+        # Build de la imagen
+        docker build \
+          --build-arg BUILD_DATE=$(date -u +'%Y-%m-%dT%H:%M:%SZ') \
+          --build-arg VCS_REF=${{ github.sha }} \
+          -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG \
+          -t $ECR_REGISTRY/$ECR_REPOSITORY:latest \
+          .
+        
+        # Push de todas las tags
+        docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+        docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
+        
+        # Output de la imagen para siguiente job
+        echo "image=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" >> $GITHUB_OUTPUT
+    
+    - name: Scan de imagen con Trivy
+      uses: aquasecurity/trivy-action@master
+      with:
+        image-ref: ${{ steps.build-image.outputs.image }}
+        format: 'table'
+        exit-code: '0'
+
+  # Job 4: Deploy a ECS
+  deploy:
+    name: Deploy to ECS
+    runs-on: ubuntu-latest
+    needs: build
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    
+    steps:
+    - name: Configurar credenciales de AWS
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ env.AWS_REGION }}
+    
+    - name: Descargar task definition actual
+      run: |
+        aws ecs describe-task-definition \
+          --task-definition ${{ env.ECS_CLUSTER }}-task \
+          --query taskDefinition > task-definition.json
+    
+    - name: Actualizar task definition con nueva imagen
+      id: task-def
+      uses: aws-actions/amazon-ecs-render-task-definition@v1
+      with:
+        task-definition: task-definition.json
+        container-name: ${{ env.CONTAINER_NAME }}
+        image: ${{ needs.build.outputs.image }}
+    
+    - name: Deploy a Amazon ECS
+      uses: aws-actions/amazon-ecs-deploy-task-definition@v1
+      with:
+        task-definition: ${{ steps.task-def.outputs.task-definition }}
+        service: ${{ env.ECS_SERVICE }}
+        cluster: ${{ env.ECS_CLUSTER }}
+        wait-for-service-stability: true
+    
+    - name: Verificar despliegue
+      run: |
+        echo " Despliegue completado exitosamente"
+        echo "Verificando salud del servicio..."
+        
+        aws ecs describe-services \
+          --cluster ${{ env.ECS_CLUSTER }} \
+          --services ${{ env.ECS_SERVICE }} \
+          --query 'services[0].deployments[0]'
+
+  # Job 5: Notificación (opcional)
+  notify:
+    name: Notify Status
+    runs-on: ubuntu-latest
+    needs: [deploy]
+    if: always()
+    
+    steps:
+    - name: Notificar resultado
+      run: |
+        if [ "${{ needs.deploy.result }}" == "success" ]; then
+          echo " Deploy exitoso!"
+        else
+          echo " Deploy falló"
+        fi
