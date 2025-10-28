@@ -481,7 +481,7 @@ Write-Host "Dashboard: $DASHBOARD_URL"
 # Abrir dashboard
 Start-Process $DASHBOARD_URL
 
-🔄 PARTE 8: WORKFLOW COMPLETO DE CI/CD
+ PARTE 8: WORKFLOW COMPLETO DE CI/CD
 8.1. Hacer cambios en la aplicación
 app/server.js (modificar)
 javascript// Agregar una nueva ruta
