@@ -532,8 +532,6 @@ Start-Process $DASHBOARD_URL
  PARTE 8: WORKFLOW COMPLETO DE CI/CD
 8.1. Hacer cambios en la aplicación
 
-cd C:\Users\USER\Documents\proyecto-cicd-aws\proyecto-cicd-aws
-
 app/server.js (modificar)
 javascript// Agregar una nueva ruta
 app.get('/api/version', (req, res) => {
@@ -543,9 +541,15 @@ app.get('/api/version', (req, res) => {
     features: ['CI/CD', 'Auto-scaling', 'Monitoring']
   });
 });
+
 8.2. Commit y push para activar CI/CD
+
+cd C:\Users\USER\Documents\proyecto-cicd-aws\proyecto-cicd-aws
+
 powershell# Ver cambios
 git status
+
+git init
 
 # Agregar cambios
 git add .
@@ -555,6 +559,15 @@ git commit -m "feat: agregar endpoint /api/version"
 
 # Push a main (esto activará el pipeline)
 git push origin main
+
+Ir a settings / Secrets and variables
+
+Validar que los secretos esten configurados en el repositorio de github
+
+Agregar un Secreto: AWS_ACCESS_KEY_ID
+Agregar un Secreto: AWS_SECRET_ACCESS_KEY
+
+
 8.3. Monitorear el pipeline en GitHub
 
 Ve a tu repositorio en GitHub

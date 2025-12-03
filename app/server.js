@@ -74,3 +74,11 @@ app.listen(PORT, () => {
   console.log(` Ambiente: ${ENV}`);
   console.log(` Iniciado: ${new Date().toISOString()}`);
 });
+
+app.get('/api/version', (req, res) => {
+  res.json({
+    version: '2.0.0',
+    updated: new Date().toISOString(),
+    features: ['CI/CD', 'Auto-scaling', 'Monitoring']
+  });
+}); 
