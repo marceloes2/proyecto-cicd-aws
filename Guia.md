@@ -256,6 +256,22 @@ CloudWatchLogsFullAccess
 
 ApplicationAutoScalingFullAccess
 
+aws iam attach-user-policy --user-name aws_idat --policy-arn arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryFullAccess
+aws iam attach-user-policy --user-name aws_idat --policy-arn arn:aws:iam::aws:policy/AmazonVPCFullAccess
+aws iam attach-user-policy --user-name aws_idat --policy-arn arn:aws:iam::aws:policy/IAMFullAccess
+aws iam attach-user-policy --user-name aws_idat --policy-arn arn:aws:iam::aws:policy/AmazonEC2FullAccess
+aws iam attach-user-policy --user-name aws_idat --policy-arn arn:aws:iam::aws:policy/ElasticLoadBalancingFullAccess
+aws iam attach-user-policy --user-name aws_idat --policy-arn arn:aws:iam::aws:policy/CloudWatchFullAccess
+aws iam attach-user-policy --user-name aws_idat --policy-arn arn:aws:iam::aws:policy/CloudWatchLogsFullAccess
+aws iam attach-user-policy --user-name aws_idat --policy-arn arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryPowerUser
+
+# Comando para quitar una politica (Ejemplo)
+aws iam detach-user-policy --user-name aws_idat --policy-arn arn:aws:iam::aws:policy/AmazonEC2ReadOnlyAccess
+
+
+# Verificar permisos
+aws iam list-attached-user-policies --user-name aws_idat
+
 
 # Verificar
 aws iam list-user-policies --user-name cicd-deploy-user
@@ -387,10 +403,22 @@ terraform output > outputs.txt
 notepad outputs.txt
 
 6.5. Construir y subir imagen inicial a ECR
-powershell# Obtener URL del ECR
-$ECR_URL = terraform output -raw ecr_repository_url
 
-# Login a ECR
+powershell
+# Obtener URL del ECR
+$ECR_URL = terraform output -raw ecr_repository_url
+Write-Host "ECR URL: $ECR_URL"
+
+# Generar un token temporal
+aws ecr get-login-password --region us-east-1
+
+# Guardar el token en una variable
+$TOKEN = aws ecr get-login-password --region us-east-1
+
+# Realizar un login manual usando el token
+docker login --username AWS --password $TOKEN 488639172777.dkr.ecr.us-east-1.amazonaws.com/proyecto-cicd-dev-app
+
+# Login a ECR (Opcional)
 aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin $ECR_URL
 
 # Navegar a la carpeta de la app
@@ -407,8 +435,28 @@ docker push ${ECR_URL}:latest
 
 # Verificar en ECR
 aws ecr describe-images --repository-name proyecto-cicd-dev-app
+
 6.6. Forzar primer despliegue en ECS
-powershell# Actualizar servicio ECS con la nueva imagen
+powershell
+
+# Verificar servicio de ECS
+aws ecs describe-services `
+  --cluster proyecto-cicd-dev-cluster `
+  --services proyecto-cicd-dev-service `
+  --query 'services[0].{Status:status, Desired:desiredCount, Running:runningCount, Pending:pendingCount, Failed:failedTasks}' `
+  --output table
+
+# Ver estado de salud de todas las tasks
+$TASKS = aws ecs list-tasks --cluster proyecto-cicd-dev-cluster --query 'taskArns[]' --output text
+
+aws ecs describe-tasks `
+  --cluster proyecto-cicd-dev-cluster `
+  --tasks ($TASKS -split '\s+') `
+  --query 'tasks[*].{TaskArn:taskArn, Status:lastStatus, Health:healthStatus, StartedAt:startedAt}' `
+  --output table
+```
+
+# Actualizar servicio ECS con la nueva imagen
 aws ecs update-service `
   --cluster proyecto-cicd-dev-cluster `
   --service proyecto-cicd-dev-service `
@@ -483,6 +531,9 @@ Start-Process $DASHBOARD_URL
 
  PARTE 8: WORKFLOW COMPLETO DE CI/CD
 8.1. Hacer cambios en la aplicación
+
+cd C:\Users\USER\Documents\proyecto-cicd-aws\proyecto-cicd-aws
+
 app/server.js (modificar)
 javascript// Agregar una nueva ruta
 app.get('/api/version', (req, res) => {
