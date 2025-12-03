@@ -143,7 +143,7 @@ jobs:
     - name: Descargar task definition actual
       run: |
         aws ecs describe-task-definition \
-          --task-definition ${{ env.ECS_CLUSTER }}-task \
+          --task-definition proyecto-cicd-dev-task \
           --query taskDefinition > task-definition.json
     
     - name: Actualizar task definition con nueva imagen
