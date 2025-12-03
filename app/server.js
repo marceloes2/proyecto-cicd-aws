@@ -81,4 +81,4 @@ app.get('/api/version', (req, res) => {
     updated: new Date().toISOString(),
     features: ['CI/CD', 'Auto-scaling', 'Monitoring']
   });
-}); 
+});
